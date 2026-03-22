@@ -25,6 +25,17 @@ export interface ChatMessage {
   fileName?: string;
 }
 
+export interface SessionFile {
+  id: string;
+  fileName: string;
+  fileSize: number;
+  mimeType: string;
+  direction: 'sent' | 'received';
+  timestamp: Date;
+  downloadUrl?: string; // received files: blob URL; absent for sent files
+  fileRef?: File;       // sent files: original File object for local re-download
+}
+
 export interface UseRoomResult {
   phase: Phase;
   cryptoKey: CryptoKey | null;
@@ -33,11 +44,13 @@ export interface UseRoomResult {
   encodedKey: string | null;
   messages: ChatMessage[];
   fileTransfers: Map<string, FileTransferState>;
+  sessionFiles: SessionFile[];
   error: string | null;
   create: () => Promise<void>;
   join: (encodedKey: string) => Promise<void>;
   sendMessage: (text: string) => Promise<void>;
   sendFile: (file: File) => Promise<void>;
+  deleteSessionFile: (id: string) => void;
 }
 
 const CHUNK_SIZE = 16 * 1024;
@@ -49,6 +62,7 @@ export function useRoom(): UseRoomResult {
   const [encodedKey, setEncodedKey] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [fileTransfers, setFileTransfers] = useState<Map<string, FileTransferState>>(new Map());
+  const [sessionFiles, setSessionFiles] = useState<SessionFile[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [activeConn, setActiveConn] = useState<DataConnection | null>(null);
   const [isJoiner, setIsJoiner] = useState(false);
@@ -94,6 +108,18 @@ export function useRoom(): UseRoomResult {
               type: 'file-notification',
               fileName: state.fileName,
             }]);
+            setSessionFiles(prev => {
+              if (prev.some(f => f.id === state.fileId)) return prev;
+              return [...prev, {
+                id: state.fileId,
+                fileName: state.fileName,
+                fileSize: state.fileSize,
+                mimeType: state.mimeType,
+                direction: 'received',
+                timestamp: new Date(),
+                downloadUrl: state.downloadUrl,
+              }];
+            });
           }
         });
       },
@@ -225,6 +251,16 @@ export function useRoom(): UseRoomResult {
         });
       });
 
+      setSessionFiles(prev => [...prev, {
+        id: crypto.randomUUID(),
+        fileName: file.name,
+        fileSize: file.size,
+        mimeType: file.type || 'application/octet-stream',
+        direction: 'sent',
+        timestamp: new Date(),
+        fileRef: file,
+      }]);
+
       setMessages(prev => [...prev, {
         id: crypto.randomUUID(),
         sender: 'self',
@@ -236,6 +272,15 @@ export function useRoom(): UseRoomResult {
     } catch (err) {
       setError(`Failed to send file: ${err instanceof Error ? err.message : String(err)}`);
     }
+  }, []);
+
+  const deleteSessionFile = useCallback((id: string) => {
+    setSessionFiles(prev => {
+      const file = prev.find(f => f.id === id);
+      // Revoke blob URL to free memory (received files only)
+      if (file?.downloadUrl) URL.revokeObjectURL(file.downloadUrl);
+      return prev.filter(f => f.id !== id);
+    });
   }, []);
 
   // Suppress unused warning — cryptoKey is exposed in return value
@@ -250,10 +295,12 @@ export function useRoom(): UseRoomResult {
     encodedKey,
     messages,
     fileTransfers,
+    sessionFiles,
     error,
     create,
     join,
     sendMessage,
     sendFile,
+    deleteSessionFile,
   };
 }

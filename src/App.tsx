@@ -18,11 +18,13 @@ export default function App() {
     encodedKey,
     messages,
     fileTransfers,
+    sessionFiles,
     error,
     create,
     join,
     sendMessage,
     sendFile,
+    deleteSessionFile,
   } = useRoom();
 
   // Connected → show chat
@@ -31,8 +33,10 @@ export default function App() {
       <ChatWindow
         messages={messages}
         fileTransfers={fileTransfers}
+        sessionFiles={sessionFiles}
         onSendMessage={sendMessage}
         onSendFile={sendFile}
+        onDeleteSessionFile={deleteSessionFile}
         error={error}
       />
     );
